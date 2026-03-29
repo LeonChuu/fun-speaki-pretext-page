@@ -8,32 +8,52 @@
   <style>
     * { box-sizing: border-box; margin: 0; }
     html, body {
-      background: radial-gradient(ellipse at 50% 40%, #0f0f14 0%, #0a0a0c 100%);
-      color: #e8e4dc; height: 100vh; overflow: hidden;
+      background: #ff9800;
+      color: #1a1a1a; height: 100vh; overflow: hidden;
     }
     body { font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, serif; }
 
     #stage { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
 
     .line {
-      position: absolute; white-space: pre; z-index: 1; color: #e8e4dc;
+      position: absolute; white-space: pre; z-index: 1; color: #1a1a1a;
+      font-weight: 500;
       user-select: text; -webkit-user-select: text;
     }
 
     .headline-line {
       position: absolute; white-space: pre;
-      font-weight: 700; color: #fff; letter-spacing: -0.5px; z-index: 2;
+      font-weight: 700; color: #000; letter-spacing: -0.5px; z-index: 2;
       user-select: text; -webkit-user-select: text;
     }
 
     .drop-cap {
       position: absolute; pointer-events: none; z-index: 2;
-      font-weight: 700; color: #c4a35a;
+      font-weight: 700; color: #4e342e;
     }
 
     .asset-img {
       position: absolute; z-index: 10;
       pointer-events: none;
+    }
+
+    .controls {
+      position: fixed; top: 16px; left: 16px; z-index: 200;
+      background: rgba(0, 0, 0, 0.6);
+      padding: 12px 20px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: white;
+      font-size: 14px;
+      backdrop-filter: blur(4px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    #speed-slider {
+      cursor: pointer;
+      accent-color: #c4a35a;
     }
 
     .hint {
@@ -47,7 +67,10 @@
 </head>
 <body>
   <div id="stage"></div>
-  <div class="hint">Text flows around all images &middot; Zero DOM reads</div>
+  <div class="controls">
+    <label for="speed-slider">Speed</label>
+    <input type="range" id="speed-slider" min="0" max="5" step="0.1" value="1">
+  </div>
 
   <script type="module" src="./main.ts"></script>
 </body>
