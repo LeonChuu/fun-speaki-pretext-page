@@ -10,16 +10,12 @@ import { images } from './assets/images.ts'
 const BODY_FONT = '500 18px "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, serif'
 const BODY_LINE_HEIGHT = 30
 const HEADLINE_FONT_FAMILY = '"Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, serif'
-const HEADLINE_TEXT = 'Speaki likes pumpkin!'
+const HEADLINE_TEXT = 'Speaki likes pumpkin!!'
 const GUTTER = 48
-const COL_GAP = 40
 const BOTTOM_GAP = 20
-const DROP_CAP_LINES = 3
 const MIN_SLOT_WIDTH = 50
 const NARROW_BREAKPOINT = 760
 const NARROW_GUTTER = 20
-const NARROW_COL_GAP = 20
-const NARROW_BOTTOM_GAP = 16
 
 type Interval = {
   left: number
@@ -40,12 +36,13 @@ type RectObstacle = {
   h: number
 }
 
-type CircleObstacle = {
-  cx: number
-  cy: number
-  r: number
-  hPad: number
-  vPad: number
+type AlphaObstacle = {
+  x: number
+  y: number
+  w: number
+  h: number
+  // Array of horizontal intervals (normalized 0-1) for each vertical row of the image
+  scanlines: (Interval | null)[]
 }
 
 type HeadlineFit = {
@@ -53,8 +50,8 @@ type HeadlineFit = {
   lines: PositionedLine[]
 }
 
-
 const BODY_TEXT = `Chowayo chowayo sundakotti chowayo. ueeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee~ Speaki! `.repeat(40) 
+
 function getRequiredDiv(id: string): HTMLDivElement {
   const element = document.getElementById(id)
   if (!(element instanceof HTMLDivElement)) throw new Error(`#${id} not found`)
@@ -80,29 +77,45 @@ function carveTextLineSlots(base: Interval, blocked: Interval[]): Interval[] {
   return slots.filter(slot => slot.right - slot.left >= MIN_SLOT_WIDTH)
 }
 
-function circleIntervalForBand(
-  cx: number,
-  cy: number,
-  r: number,
-  bandTop: number,
-  bandBottom: number,
-  hPad: number,
-  vPad: number,
-): Interval | null {
-  const top = bandTop - vPad
-  const bottom = bandBottom + vPad
-  if (top >= cy + r || bottom <= cy - r) return null
-  const minDy = cy >= top && cy <= bottom ? 0 : cy < top ? top - cy : cy - bottom
-  if (minDy >= r) return null
-  const maxDx = Math.sqrt(r * r - minDy * minDy)
-  return { left: cx - maxDx - hPad, right: cx + maxDx + hPad }
-}
-
 function getCircleSpanAtY(cx: number, cy: number, r: number, y: number): Interval | null {
   const dy = Math.abs(y - cy);
   if (dy >= r) return null;
   const dx = Math.sqrt(r * r - dy * dy);
   return { left: cx - dx, right: cx + dx };
+}
+
+async function extractAlphaScanlines(img: HTMLImageElement): Promise<(Interval | null)[]> {
+  const canvas = document.createElement('canvas')
+  // Use a fixed resolution for scanning to balance performance and accuracy
+  const scanWidth = 100
+  const scanHeight = 100
+  canvas.width = scanWidth
+  canvas.height = scanHeight
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return []
+
+  ctx.drawImage(img, 0, 0, scanWidth, scanHeight)
+  const imageData = ctx.getImageData(0, 0, scanWidth, scanHeight)
+  const data = imageData.data
+  const scanlines: (Interval | null)[] = []
+
+  for (let y = 0; y < scanHeight; y++) {
+    let firstX = -1
+    let lastX = -1
+    for (let x = 0; x < scanWidth; x++) {
+      const alpha = data[(y * scanWidth + x) * 4 + 3]!
+      if (alpha > 50) { // Transparency threshold
+        if (firstX === -1) firstX = x
+        lastX = x
+      }
+    }
+    if (firstX !== -1) {
+      scanlines.push({ left: firstX / scanWidth, right: (lastX + 1) / scanWidth })
+    } else {
+      scanlines.push(null)
+    }
+  }
+  return scanlines
 }
 
 const stage = getRequiredDiv('stage')
@@ -190,8 +203,7 @@ function layoutCircularBody(
   cy: number,
   r: number,
   lineHeight: number,
-  rectObstacles: RectObstacle[],
-  circleObstacles: CircleObstacle[],
+  alphaObstacles: AlphaObstacle[],
 ): { lines: PositionedLine[], cursor: LayoutCursor } {
   let cursor: LayoutCursor = startCursor
   let lineTop = cy - r
@@ -201,9 +213,7 @@ function layoutCircularBody(
   while (lineTop + lineHeight <= cy + r && !textExhausted) {
     const bandTop = lineTop
     const bandBottom = lineTop + lineHeight
-    const midY = (bandTop + bandBottom) / 2
     
-    // Check span at both top and bottom of line to stay inside the circle
     const spanTop = getCircleSpanAtY(cx, cy, r, bandTop)
     const spanBottom = getCircleSpanAtY(cx, cy, r, bandBottom)
     
@@ -224,16 +234,35 @@ function layoutCircularBody(
 
     const blocked: Interval[] = []
 
-    for (let rectIndex = 0; rectIndex < rectObstacles.length; rectIndex++) {
-      const rect = rectObstacles[rectIndex]!
-      if (bandBottom <= rect.y || bandTop >= rect.y + rect.h) continue
-      blocked.push({ left: rect.x, right: rect.x + rect.w })
-    }
+    for (let obsIndex = 0; obsIndex < alphaObstacles.length; obsIndex++) {
+      const obs = alphaObstacles[obsIndex]!
+      // Check if image intersects this vertical band
+      if (bandBottom <= obs.y || bandTop >= obs.y + obs.h) continue
 
-    for (let circIndex = 0; circIndex < circleObstacles.length; circIndex++) {
-      const circ = circleObstacles[circIndex]!
-      const interval = circleIntervalForBand(circ.cx, circ.cy, circ.r, bandTop, bandBottom, circ.hPad, circ.vPad)
-      if (interval) blocked.push(interval)
+      // Find the range of scanlines that overlap this band
+      const startIdx = Math.max(0, Math.floor(((bandTop - obs.y) / obs.h) * obs.scanlines.length))
+      const endIdx = Math.min(obs.scanlines.length - 1, Math.floor(((bandBottom - obs.y) / obs.h) * obs.scanlines.length))
+
+      let combinedLeft = 1.0
+      let combinedRight = 0.0
+      let foundOpaque = false
+
+      for (let i = startIdx; i <= endIdx; i++) {
+        const span = obs.scanlines[i]
+        if (span) {
+          combinedLeft = Math.min(combinedLeft, span.left)
+          combinedRight = Math.max(combinedRight, span.right)
+          foundOpaque = true
+        }
+      }
+
+      if (foundOpaque) {
+        // Map normalized coordinates back to screen pixels
+        blocked.push({
+          left: obs.x + combinedLeft * obs.w - 8, // padding
+          right: obs.x + combinedRight * obs.w + 8
+        })
+      }
     }
 
     const slots = carveTextLineSlots(baseInterval, blocked)
@@ -276,27 +305,41 @@ type AssetState = {
   baseSize: number
   w: number
   h: number
+  scanlines: (Interval | null)[]
 }
 
-const assets: AssetState[] = images.map((src: string) => {
-  const el = document.createElement('img')
-  el.src = src
-  el.className = 'asset-img'
-  el.style.borderRadius = '50%' // Make images circular visually
-  stage.appendChild(el)
-  
-  const baseSize = 150 + Math.random() * 100
-  return {
-    el,
-    x: Math.random() * (window.innerWidth - baseSize),
-    y: Math.random() * (window.innerHeight - baseSize),
-    vx: (Math.random() - 0.5) * 200,
-    vy: (Math.random() - 0.5) * 200,
-    baseSize: baseSize,
-    w: baseSize,
-    h: baseSize,
-  }
-})
+const assets: AssetState[] = []
+
+async function initAssets() {
+  const promises = images.map(async (src: string) => {
+    const el = document.createElement('img')
+    el.src = src
+    el.className = 'asset-img'
+    stage.appendChild(el)
+    
+    // Wait for image to load to process alpha
+    await new Promise((resolve) => {
+      if (el.complete) resolve(null)
+      else el.onload = () => resolve(null)
+    })
+
+    const scanlines = await extractAlphaScanlines(el)
+    const baseSize = 150 + Math.random() * 100
+
+    assets.push({
+      el,
+      x: Math.random() * (window.innerWidth - baseSize),
+      y: Math.random() * (window.innerHeight - baseSize),
+      vx: (Math.random() - 0.5) * 200,
+      vy: (Math.random() - 0.5) * 200,
+      baseSize,
+      w: baseSize,
+      h: baseSize,
+      scanlines
+    })
+  })
+  await Promise.all(promises)
+}
 
 let lastTime = 0
 
@@ -309,14 +352,11 @@ function render(time: number): void {
   const pageWidth = document.documentElement.clientWidth
   const pageHeight = document.documentElement.clientHeight
   const gutter = pageWidth < NARROW_BREAKPOINT ? NARROW_GUTTER : GUTTER
-
-  // Calculate scale factor based on window width (reference width 1200px)
   const scale = Math.max(0.4, Math.min(1.5, pageWidth / 1200))
 
-  const circleObstacles: CircleObstacle[] = []
+  const alphaObstacles: AlphaObstacle[] = []
 
   for (const asset of assets) {
-    // Update size based on scale
     asset.w = asset.baseSize * scale
     asset.h = asset.baseSize * scale
 
@@ -345,12 +385,12 @@ function render(time: number): void {
     asset.el.style.left = `${asset.x}px`
     asset.el.style.top = `${asset.y}px`
 
-    circleObstacles.push({
-      cx: asset.x + asset.w / 2,
-      cy: asset.y + asset.h / 2,
-      r: asset.w / 2,
-      hPad: 10,
-      vPad: 2,
+    alphaObstacles.push({
+      x: asset.x,
+      y: asset.y,
+      w: asset.w,
+      h: asset.h,
+      scanlines: asset.scanlines
     })
   }
 
@@ -377,8 +417,7 @@ function render(time: number): void {
     bodyCenterY,
     bodyRadius,
     BODY_LINE_HEIGHT,
-    [],
-    circleObstacles
+    alphaObstacles
   )
 
   syncPool(domCache.headlineLines, headlineLines.length, 'headline-line')
@@ -406,4 +445,5 @@ function render(time: number): void {
   requestAnimationFrame(render)
 }
 
+await initAssets()
 requestAnimationFrame(render)
