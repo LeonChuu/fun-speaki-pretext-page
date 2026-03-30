@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Editorial pretext demo with multiple image obstacles.">
-  <title>Pretext Image Demo</title>
+  <meta name="description" content="Fun pretext demo with Speaki and Karin!">
+  <title>Speaki Chowayo!</title>
   <style>
     * { box-sizing: border-box; margin: 0; }
     html, body {
@@ -13,7 +13,10 @@
     }
     body { font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, serif; }
 
-    #stage { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
+    #stage {
+      position: relative; width: 100vw; height: 100vh; overflow: hidden;
+      touch-action: none;
+    }
 
     .line {
       position: absolute; white-space: pre; z-index: 1; color: #1a1a1a;
@@ -34,7 +37,9 @@
 
     .asset-img {
       position: absolute; z-index: 10;
-      pointer-events: none;
+      pointer-events: auto;
+      cursor: pointer;
+      touch-action: none;
     }
 
     .controls {

@@ -394,6 +394,51 @@ function render(time: number): void {
     })
   }
 
+  // Handle asset-to-asset collisions
+  for (let i = 0; i < assets.length; i++) {
+    const a = assets[i]!
+    const rA = a.w / 2
+    const cAX = a.x + rA
+    const cAY = a.y + rA
+
+    for (let j = i + 1; j < assets.length; j++) {
+      const b = assets[j]!
+      const rB = b.w / 2
+      const cBX = b.x + rB
+      const cBY = b.y + rB
+
+      const dx = cBX - cAX
+      const dy = cBY - cAY
+      const distance = Math.sqrt(dx * dx + dy * dy)
+      const minDistance = rA + rB
+
+      if (distance < minDistance) {
+        // Collision detected!
+        // 1. Position correction (push them apart so they don't stick)
+        const overlap = minDistance - distance
+        const nx = dx / distance // Normal X
+        const ny = dy / distance // Normal Y
+        
+        a.x -= nx * overlap / 2
+        a.y -= ny * overlap / 2
+        b.x += nx * overlap / 2
+        b.y += ny * overlap / 2
+
+        // 2. Velocity resolution (elastic collision)
+        // Project velocities onto the normal
+        const v1n = a.vx * nx + a.vy * ny
+        const v2n = b.vx * nx + b.vy * ny
+
+        // Swap the normal components of the velocities
+        const dv = v2n - v1n
+        a.vx += dv * nx
+        a.vy += dv * ny
+        b.vx -= dv * nx
+        b.vy -= dv * ny
+      }
+    }
+  }
+
   const headlineWidth = Math.min(pageWidth - gutter * 2, 1000)
   const maxHeadlineHeight = Math.floor(pageHeight * 0.15)
   const { fontSize: headlineSize, lines: headlineLines } = fitHeadline(
@@ -444,6 +489,32 @@ function render(time: number): void {
 
   requestAnimationFrame(render)
 }
+
+// Click/Tap handler to randomize asset velocity
+stage.addEventListener('pointerdown', (event) => {
+  const mouseX = event.clientX
+  const mouseY = event.clientY
+
+  for (const asset of assets) {
+    const centerX = asset.x + asset.w / 2
+    const centerY = asset.y + asset.h / 2
+    const dx = mouseX - centerX
+    const dy = mouseY - centerY
+    const distance = Math.sqrt(dx * dx + dy * dy)
+
+    if (distance < asset.w / 2) {
+      // Randomize direction and speed (100 to 400 pixels/sec)
+      const angle = Math.random() * Math.PI * 2
+      const speed = 100 + Math.random() * 300
+      asset.vx = Math.cos(angle) * speed
+      asset.vy = Math.sin(angle) * speed
+      
+      // Give a little visual feedback by nudging the image
+      asset.x += asset.vx * 0.05
+      asset.y += asset.vy * 0.05
+    }
+  }
+})
 
 await initAssets()
 requestAnimationFrame(render)
